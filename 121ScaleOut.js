@@ -25,6 +25,11 @@ const { argv } = require('yargs')
   .number('s')
   .alias('s', 'stop')
   .describe('s', 'Set stop price')
+// '-S <estimatedSlippagePercent>'
+  .number('S')
+  .alias('S', 'slippage')
+  .describe('S', 'Estimated slippage percentage on stop order. Set to factor estimated slippage into target price for risk-free scale out.')
+  .default('S', 0)
 // '-l' for limit-order entry
   .boolean('l')
   .alias('l', 'limit')
@@ -58,7 +63,7 @@ const { argv } = require('yargs')
   .wrap(process.stdout.columns)
 
 let {
-  p: tradingPair, a: tradeAmount, e: entryPrice, s: stopPrice, l: entryLimitOrder,
+  p: tradingPair, a: tradeAmount, e: entryPrice, s: stopPrice, S: slippage, l: entryLimitOrder,
   t: entryStopLimitTrigger, x: isExchange, h: hiddenExitOrders, c: cancelPrice, n: noScaleOut
 } = argv
 
@@ -102,6 +107,8 @@ tradeAmount = roundToSignificantDigitsBFX(tradeAmount)
 cancelPrice = cancelPrice ? roundToSignificantDigitsBFX(cancelPrice) : stopPrice
 
 let isShort = entryPrice < stopPrice
+let estimatedSlippagePercent = slippage / 100
+
 var entryOrderActive = false
 
 let entryOrderObj = {
@@ -220,8 +227,8 @@ ws.once('auth', () => {
           entryPrice = o.priceAvg
           console.log('Submitted 50% stop order')
           let targetPrice = !isShort
-            ? (2 * entryPrice) - stopPrice + (4 * entryPrice * bfxExchangeTakerFee) / (1 - bfxExchangeTakerFee)
-            : (2 * entryPrice) - stopPrice - (4 * entryPrice * bfxExchangeTakerFee) / (1 + bfxExchangeTakerFee)
+            ? (2 * entryPrice) - (stopPrice * (1 - estimatedSlippagePercent)) + (4 * entryPrice * bfxExchangeTakerFee) / (1 - bfxExchangeTakerFee)
+            : (2 * entryPrice) - (stopPrice * (1 + estimatedSlippagePercent)) - (4 * entryPrice * bfxExchangeTakerFee) / (1 + bfxExchangeTakerFee)
           targetPrice = roundToSignificantDigitsBFX(targetPrice)
           let amount2 = roundToSignificantDigitsBFX((!isShort ? -tradeAmount : tradeAmount) / 2)
 
