@@ -2,7 +2,7 @@
 // This script places an order (stop or limit-based) and once filled, places a stop for 50% and an
 //  OCO limit+stop order for the other 50% at 1:1 risk/reward to eliminate risk from your trade early
 //  https://github.com/cryptomius/Bitfinex-Auto-Stop-121-Scale-Out
-
+require('dotenv').config()
 const { argv } = require('yargs')
   .usage('Usage: $0')
   .example('$0 -p BTCUSD -a 0.004 -e 10000 -s 9000', 'Place a long market stop entry order for 0.004 BTC @ 10000 USD with stop at 9000 USD and default 1:1 50% scale-out target.')
@@ -121,7 +121,7 @@ var roundToSignificantDigitsBFX = function (num) {
 }
 
 const BFX = require('bitfinex-api-node')
-require('dotenv').config()
+
 const { API_KEY, API_SECRET } = process.env
 const { Order } = BFX.Models
 
