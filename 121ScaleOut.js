@@ -121,9 +121,9 @@ var roundToSignificantDigitsBFX = function (num) {
 }
 
 const BFX = require('bitfinex-api-node')
+const { Order } = require('bfx-api-node-models')
 
 const { API_KEY, API_SECRET } = process.env
-const { Order } = BFX.Models
 
 const bfx = new BFX({
   apiKey: API_KEY,
@@ -164,7 +164,7 @@ if (entryStopLimitTrigger !== 0) { // stop limit entry
 const ws = bfx.ws(2)
 const o = new Order(entryOrderObj)
 
-ws.on('error', (err) => logger.info(err))
+ws.on('error', (err) => logger.error(`a websocket error occured ${err}`))
 ws.on('open', () => {
   ws.subscribeTicker('t' + tradingPair)
   logger.info('Monitoring ' + tradingPair + ' for breach of cancel price: ' + cancelPrice)
