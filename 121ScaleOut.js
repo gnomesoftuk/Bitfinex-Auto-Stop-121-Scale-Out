@@ -175,7 +175,7 @@ ws.onTicker({ symbol: 't' + tradingPair }, (ticker) => {
   let tickerObj = ticker.toJS()
   if (entryOrderActive) {
     if (!lastPriceUpdate || moment().diff(lastPriceUpdate, 'minute') > 5) {
-      logger.info(tradingPair + ' price: ' + roundToSignificantDigitsBFX(tickerObj.lastPrice) + ' (ask: ' + tickerObj.ask + ', bid: ' + tickerObj.bid + ') cancel price: ' + cancelPrice)
+      logger.info(`${tradingPair} price: ${roundToSignificantDigitsBFX(tickerObj.lastPrice)} (ask: ${tickerObj.ask}, bid: ${tickerObj.bid}) ${isShort ? 'sell' : 'buy'}: ${entryStopLimitTrigger || entryPrice} cancel: ${cancelPrice}`)
       lastPriceUpdate = moment()
     }
 
@@ -183,11 +183,11 @@ ws.onTicker({ symbol: 't' + tradingPair }, (ticker) => {
       // Cancel the entry order if the cancel price is breached hit prior to entry
       logger.info('Your cancel price of ' + cancelPrice + ' was breached prior to entry. Cancelling entry order.')
       o.cancel().then(() => {
-        logger.log('info', 'Cancellation confirmed for order %d', o.cid)
+        logger.info(`Cancellation confirmed for order ${o.cid}`)
         ws.close()
         process.exit()
       }).catch((err) => {
-        logger.log('error', 'WARNING - error cancelling order: %j', err)
+        logger.error(`WARNING - error cancelling order: ${err}`)
         ws.close()
         process.exit()
       })
@@ -343,7 +343,7 @@ process.once('SIGHUP', function (code) {
 function cancelOrderAndExit () {
   if (entryOrderActive) {
     o.cancel().then(() => {
-      logger.log('info', 'Cancellation confirmed for order %d', o.cid)
+      logger.info(`Cancellation confirmed for order ${o.cid}`)
       entryOrderActive = false
       ws.close()
       process.exit()
