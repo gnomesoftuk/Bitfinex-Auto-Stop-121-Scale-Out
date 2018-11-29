@@ -55,16 +55,16 @@ const { argv } = require('yargs')
   .alias('c', 'cancel-price')
   .describe('c', 'Set price at which to cancel entry order if breached (defaults to stop price)')
   .default('c', 0)
-// '-n <disableScaleOut>' skip scale-out.
-  .boolean('n')
-  .alias('n', 'disable-scale-out')
-  .describe('n', 'Disable scale-out (100% stop only)')
-  .default('n', false)
+// '-T <fixedTarget>' use fixed target rather than scale out.
+  .boolean('T')
+  .alias('T', 'target')
+  .describe('T', 'use fixed target rather than scaling order out.')
+  .default('T', 0)
   .wrap(process.stdout.columns)
 
 let {
   p: tradingPair, a: tradeAmount, e: entryPrice, s: stopPrice, S: slippage, l: entryLimitOrder,
-  t: entryStopLimitTrigger, x: isExchange, h: hiddenExitOrders, c: cancelPrice, n: noScaleOut
+  t: entryStopLimitTrigger, x: isExchange, h: hiddenExitOrders, c: cancelPrice, T: targetPrice
 } = argv
 
 const { createLogger, format, transports } = require('winston')
@@ -104,7 +104,7 @@ const logger = createLogger({
   ]
 })
 
-logger.info('1:1 scale out mode: ' + (noScaleOut ? 'OFF' : 'ON'))
+logger.info('1:1 scale out mode: ' + (targetPrice ? 'OFF' : 'ON'))
 
 const bfxExchangeTakerFee = 0.002 // 0.2% 'taker' fee
 
@@ -162,7 +162,7 @@ if (entryStopLimitTrigger !== 0) { // stop limit entry
 }
 
 const ws = bfx.ws(2)
-const o = new Order(entryOrderObj)
+const entryOrder = new Order(entryOrderObj)
 
 ws.on('error', (err) => logger.error(`a websocket error occured ${err}`))
 ws.on('open', () => {
@@ -182,8 +182,8 @@ ws.onTicker({ symbol: 't' + tradingPair }, (ticker) => {
     if ((entryPrice > cancelPrice && tickerObj.bid <= cancelPrice) || (entryPrice < cancelPrice && tickerObj.ask >= cancelPrice)) {
       // Cancel the entry order if the cancel price is breached hit prior to entry
       logger.info('Your cancel price of ' + cancelPrice + ' was breached prior to entry. Cancelling entry order.')
-      o.cancel().then(() => {
-        logger.info(`Cancellation confirmed for order ${o.cid}`)
+      entryOrder.cancel().then(() => {
+        logger.info(`Cancellation confirmed for order ${entryOrder.cid}`)
         ws.close()
         process.exit()
       }).catch((err) => {
@@ -197,109 +197,34 @@ ws.onTicker({ symbol: 't' + tradingPair }, (ticker) => {
 
 ws.once('auth', () => {
   // Enable automatic updates
-  o.registerListeners(ws)
+  entryOrder.registerListeners(ws)
 
-  o.on('update', () => {
-    logger.info(`Order updated: ${o.serialize()}`)
+  entryOrder.on('update', () => {
+    logger.info(`Order updated: ${entryOrder.serialize()}`)
   })
 
-  o.on('close', () => {
-    logger.info(`Order status: ${o.status}`)
+  entryOrder.on('close', () => {
+    logger.info(`Order status: ${entryOrder.status}`)
 
-    if (o.status !== 'CANCELED') {
+    if (entryOrder.status !== 'CANCELED') {
       entryOrderActive = false
       ws.unsubscribeTicker('t' + tradingPair)
       logger.info('-- POSITION ENTERED --')
       if (isExchange) { tradeAmount = tradeAmount - (tradeAmount * bfxExchangeTakerFee) }
-      if ((noScaleOut === true) || (o.priceAvg == null && entryPrice === 0)) {
-        let amount4 = roundToSignificantDigitsBFX((!isShort ? -tradeAmount : tradeAmount))
-        if (noScaleOut !== true) {
-          logger.info(' Average price of entry was NOT RETURNED by Bitfinex! Scale-out target cannot be calculated. :-(')
-          logger.info(' Placing a SINGLE stop order at ' + stopPrice + ' for ' + amount4 + ' (100%) to protect your position')
+      let amount = roundToSignificantDigitsBFX((!isShort ? -tradeAmount : tradeAmount))
 
-          logger.info('Please send this to @cryptomius to help debug:')
-          logger.info(argv)
-          logger.info(o)
-        } else {
-          // no 1:1 scale out (noScaleOut == true)
-          logger.info(' Placing a SINGLE stop order at ' + stopPrice + ' for ' + amount4 + ' (100%) to protect your position')
-        }
-
-        const o4 = new Order({
-          cid: Date.now(),
-          symbol: 't' + tradingPair,
-          price: stopPrice,
-          amount: amount4,
-          hidden: hiddenExitOrders,
-          type: Order.type[(isExchange ? 'EXCHANGE_' : '') + 'STOP']
-        }, ws)
-        o4.setReduceOnly(true)
-
-        o4.submit().then(() => {
-          if (noScaleOut !== true) {
-            logger.info('Submitted 100% stop order. YOU MUST REDUCE THIS TO 50% AND CREATE AN oco LIMIT+STOP ORDER MANUALLY.')
-          } else {
-            logger.info('Submitted 100% stop order.')
-          }
-          logger.info('------------------------------------------')
-          ws.close()
-          process.exit()
-        }).catch((err) => {
-          logger.error(err)
+      if (entryOrder.priceAvg == null && entryPrice === 0) {
+        logger.info(' Average price of entry was NOT RETURNED by Bitfinex! Scale-out target cannot be calculated. :-(')
+        logger.info(' Placing a SINGLE stop order at ' + stopPrice + ' for ' + amount + ' (100%) to protect your position')
+        logger.info(argv)
+        logger.info(entryOrder)
+        submitStopOrder(amount).then(() => {
+          // nothing else to do now.
           ws.close()
           process.exit()
         })
       } else {
-        let amount1 = roundToSignificantDigitsBFX((!isShort ? -tradeAmount : tradeAmount) / 2)
-        const o2 = new Order({
-          cid: Date.now(),
-          symbol: 't' + tradingPair,
-          price: stopPrice,
-          amount: amount1,
-          hidden: hiddenExitOrders,
-          type: Order.type[(isExchange ? 'EXCHANGE_' : '') + 'STOP']
-        }, ws)
-        o2.setReduceOnly(true)
-
-        logger.info(' Compiled stop order for ' + amount1 + ' at ' + stopPrice)
-
-        o2.submit().then(() => {
-          logger.info(' Average price of entry = ' + o.priceAvg)
-          entryPrice = o.priceAvg
-          logger.info('Submitted 50% stop order')
-          let targetPrice = !isShort
-            ? (2 * entryPrice) - (stopPrice * (1 - estimatedSlippagePercent)) + (4 * entryPrice * bfxExchangeTakerFee) / (1 - bfxExchangeTakerFee)
-            : (2 * entryPrice) - (stopPrice * (1 + estimatedSlippagePercent)) - (4 * entryPrice * bfxExchangeTakerFee) / (1 + bfxExchangeTakerFee)
-          targetPrice = roundToSignificantDigitsBFX(targetPrice)
-          let amount2 = roundToSignificantDigitsBFX((!isShort ? -tradeAmount : tradeAmount) / 2)
-
-          const o3 = new Order({
-            cid: Date.now(),
-            symbol: 't' + tradingPair,
-            price: targetPrice, // scale-out target price (1:1)
-            amount: amount2,
-            type: Order.type[(isExchange ? 'EXCHANGE_' : '') + 'LIMIT'],
-            oco: true,
-            hidden: hiddenExitOrders,
-            priceAuxLimit: stopPrice
-          }, ws)
-          o3.setReduceOnly(true)
-
-          logger.info(' Compiled oco limit order for ' + amount2 + ' at ' + targetPrice + ' and stop at ' + stopPrice)
-
-          o3.submit().then(() => {
-            logger.info('Submitted 50% 1:1 + stop (oco) limit order')
-            logger.info('------------------------------------------')
-            logger.info('Good luck! Making gains? Drop me a tip! :-) PayPal: https://www.paypal.me/sydneyshan Crypto: https://tinyurl.com/bfx121')
-            logger.info('------------------------------------------')
-            ws.close()
-            process.exit()
-          })
-        }).catch((err) => {
-          logger.error(err)
-          ws.close()
-          process.exit()
-        })
+        submitCloseOrders(amount)
       }
     } else {
       logger.info('Entry order cancelled.')
@@ -308,11 +233,13 @@ ws.once('auth', () => {
     }
   })
 
-  o.submit().then(() => {
+  logger.info(`Submitting entry order ${JSON.stringify(entryOrderObj)}.`)
+  
+  entryOrder.submit().then(() => {
     entryOrderActive = true
-    logger.info(`submitted entry order ${o.id}`)
+    logger.info(`submitted entry order ${entryOrder.id}`)
   }).catch((err) => {
-    logger.error(err)
+    logger.error(`WARNING - error submitting entry order: ${err}`)
     process.exit()
   })
 })
@@ -322,6 +249,87 @@ if (isExchange && isShort) {
   process.exit()
 } else {
   ws.open()
+}
+
+const submitStopOrder = (amount) => {
+  const p = new Promise()
+  const stopOrder = new Order({
+    cid: Date.now(),
+    symbol: 't' + tradingPair,
+    price: stopPrice,
+    amount: amount,
+    hidden: hiddenExitOrders,
+    type: Order.type[(isExchange ? 'EXCHANGE_' : '') + 'STOP']
+  }, ws)
+  stopOrder.setReduceOnly(true)
+
+  stopOrder.submit().then(() => {
+    logger.info(`Submitted stop order for ${amount} at ${stopPrice}`)
+    p.accept()
+  })
+    .catch((err) => p.reject(err))
+  return p
+}
+
+const submitCloseOrders = (amount) => {
+
+  const submitOco = () => {
+    const p = new Promise()
+    logger.info('Average price of entry = ' + entryOrder.priceAvg)
+    entryPrice = entryOrder.priceAvg
+    
+    const targetPrice = roundToSignificantDigitsBFX(calculateTargetPrice())
+
+    const targetOrder = new Order({
+      cid: Date.now(),
+      symbol: 't' + tradingPair,
+      price: targetPrice, // scale-out target price (1:1)
+      amount: amount,
+      type: Order.type[(isExchange ? 'EXCHANGE_' : '') + 'LIMIT'],
+      oco: true,
+      hidden: hiddenExitOrders,
+      priceAuxLimit: stopPrice
+    }, ws)
+    targetOrder.setReduceOnly(true)
+
+    logger.info('Compiled oco limit order for ' + amount + ' at ' + targetPrice + ' and stop at ' + stopPrice)
+
+    targetOrder.submit().then(p.accept())
+      .catch((err) => p.reject(err))
+  }
+
+  if (targetPrice) {
+    // when no scale out we want to submit one OCO order for full position size.
+    submitOco().then(() => {
+      logger.info('Submitted limit target and stop (oco) order')
+      ws.close()
+      process.exit()
+    })
+  } else {
+    // when scaling out we want to submit one stop and one OCO order for half the position size.
+    amount = amount / 2
+    submitStopOrder()
+      .then(submitOco)
+      .then(() => {
+        logger.info('Submitted scale out 1:1 (oco) + stop order')
+        ws.close()
+        process.exit()
+      })
+      .catch((err) => {
+        logger.error(`CRITICAL ERROR - error submitting OCO order: ${err}`)
+        logger.error(`CRITICAL ERROR - risk of LOSSES you must enter stop manually!!!`)
+        ws.close()
+        process.exit()
+      })
+  }
+}
+
+const calculateTargetPrice = () => {
+  // if no target price then use calculated scale out target price
+  if (targetPrice) { return targetPrice }
+  return !isShort
+    ? (2 * entryPrice) - (stopPrice * (1 - estimatedSlippagePercent)) + (4 * entryPrice * bfxExchangeTakerFee) / (1 - bfxExchangeTakerFee)
+    : (2 * entryPrice) - (stopPrice * (1 + estimatedSlippagePercent)) - (4 * entryPrice * bfxExchangeTakerFee) / (1 + bfxExchangeTakerFee)
 }
 
 // safety mechanism - cancel order if process is interrupted.
@@ -342,8 +350,8 @@ process.once('SIGHUP', function (code) {
 
 function cancelOrderAndExit () {
   if (entryOrderActive) {
-    o.cancel().then(() => {
-      logger.info(`Cancellation confirmed for order ${o.cid}`)
+    entryOrder.cancel().then(() => {
+      logger.info(`Cancellation confirmed for order ${entryOrder.cid}`)
       entryOrderActive = false
       ws.close()
       process.exit()
