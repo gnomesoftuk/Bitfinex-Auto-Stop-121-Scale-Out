@@ -252,50 +252,52 @@ if (isExchange && isShort) {
 }
 
 const submitStopOrder = (amount) => {
-  const p = new Promise()
-  const stopOrder = new Order({
-    cid: Date.now(),
-    symbol: 't' + tradingPair,
-    price: stopPrice,
-    amount: amount,
-    hidden: hiddenExitOrders,
-    type: Order.type[(isExchange ? 'EXCHANGE_' : '') + 'STOP']
-  }, ws)
-  stopOrder.setReduceOnly(true)
-
-  stopOrder.submit().then(() => {
-    logger.info(`Submitted stop order for ${amount} at ${stopPrice}`)
-    p.accept()
-  })
-    .catch((err) => p.reject(err))
-  return p
+  return new Promise((resolve, reject) => {
+    const stopOrder = new Order({
+      cid: Date.now(),
+      symbol: 't' + tradingPair,
+      price: stopPrice,
+      amount: amount,
+      hidden: hiddenExitOrders,
+      type: Order.type[(isExchange ? 'EXCHANGE_' : '') + 'STOP']
+    }, ws)
+    stopOrder.setReduceOnly(true)
+  
+    stopOrder.submit().then(() => {
+      logger.info(`Submitted stop order for ${amount} at ${stopPrice}`)
+      resolve()
+    })
+      .catch((err) => reject(err))
+    return p
+  });
 }
 
 const submitCloseOrders = (amount) => {
 
   const submitOco = () => {
-    const p = new Promise()
-    logger.info('Average price of entry = ' + entryOrder.priceAvg)
-    entryPrice = entryOrder.priceAvg
-    
-    const targetPrice = roundToSignificantDigitsBFX(calculateTargetPrice())
-
-    const targetOrder = new Order({
-      cid: Date.now(),
-      symbol: 't' + tradingPair,
-      price: targetPrice, // scale-out target price (1:1)
-      amount: amount,
-      type: Order.type[(isExchange ? 'EXCHANGE_' : '') + 'LIMIT'],
-      oco: true,
-      hidden: hiddenExitOrders,
-      priceAuxLimit: stopPrice
-    }, ws)
-    targetOrder.setReduceOnly(true)
-
-    logger.info('Compiled oco limit order for ' + amount + ' at ' + targetPrice + ' and stop at ' + stopPrice)
-
-    targetOrder.submit().then(p.accept())
-      .catch((err) => p.reject(err))
+    return new Promise((resolve, reject) => {
+      logger.info('Average price of entry = ' + entryOrder.priceAvg)
+      entryPrice = entryOrder.priceAvg
+      
+      const targetPrice = roundToSignificantDigitsBFX(calculateTargetPrice())
+  
+      const targetOrder = new Order({
+        cid: Date.now(),
+        symbol: 't' + tradingPair,
+        price: targetPrice, // scale-out target price (1:1)
+        amount: amount,
+        type: Order.type[(isExchange ? 'EXCHANGE_' : '') + 'LIMIT'],
+        oco: true,
+        hidden: hiddenExitOrders,
+        priceAuxLimit: stopPrice
+      }, ws)
+      targetOrder.setReduceOnly(true)
+  
+      logger.info('Compiled oco limit order for ' + amount + ' at ' + targetPrice + ' and stop at ' + stopPrice)
+  
+      targetOrder.submit().then(resolve())
+        .catch((err) => reject(err))
+    })
   }
 
   if (targetPrice) {
