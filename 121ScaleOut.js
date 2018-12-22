@@ -184,12 +184,10 @@ ws.onTicker({ symbol: 't' + tradingPair }, (ticker) => {
       logger.info('Your cancel price of ' + cancelPrice + ' was breached prior to entry. Cancelling entry order.')
       entryOrder.cancel().then(() => {
         logger.info(`Cancellation confirmed for order ${entryOrder.cid}`)
-        ws.close()
-        process.exit()
+        shutdown()
       }).catch((err) => {
         logger.error(`WARNING - error cancelling order: ${err}`)
-        ws.close()
-        process.exit()
+        shutdown()
       })
     }
   }
@@ -220,16 +218,14 @@ ws.once('auth', () => {
         logger.info(entryOrder)
         submitStopOrder(amount).then(() => {
           // nothing else to do now.
-          ws.close()
-          process.exit()
+          shutdown()
         })
       } else {
         submitCloseOrders(amount)
       }
     } else {
       logger.info('Entry order cancelled.')
-      ws.close()
-      process.exit()
+      shutdown()
     }
   })
 
@@ -240,7 +236,7 @@ ws.once('auth', () => {
     logger.info(`submitted entry order ${entryOrder.id}`)
   }).catch((err) => {
     logger.error(`WARNING - error submitting entry order: ${err}`)
-    process.exit()
+    shutdown()
   })
 })
 
@@ -266,10 +262,8 @@ const submitStopOrder = (amount) => {
     stopOrder.submit().then(() => {
       logger.info(`Submitted stop order for ${amount} at ${stopPrice}`)
       resolve()
-    })
-      .catch((err) => reject(err))
-    return p
-  });
+    }).catch((err) => reject(err))
+  })
 }
 
 const submitCloseOrders = (amount) => {
@@ -304,8 +298,11 @@ const submitCloseOrders = (amount) => {
     // when no scale out we want to submit one OCO order for full position size.
     submitOco().then(() => {
       logger.info('Submitted limit target and stop (oco) order')
-      ws.close()
-      process.exit()
+      shutdown()
+    }).catch((err) => {
+      logger.error(`CRITICAL ERROR - error submitting OCO order: ${err}`)
+      logger.error(`CRITICAL ERROR - risk of LOSSES you must enter stop manually!!!`)
+      shutdown()
     })
   } else {
     // when scaling out we want to submit one stop and one OCO order for half the position size.
@@ -314,16 +311,20 @@ const submitCloseOrders = (amount) => {
       .then(submitOco)
       .then(() => {
         logger.info('Submitted scale out 1:1 (oco) + stop order')
-        ws.close()
-        process.exit()
+        shutdown()
       })
       .catch((err) => {
-        logger.error(`CRITICAL ERROR - error submitting OCO order: ${err}`)
+        logger.error(`CRITICAL ERROR - error submitting scale out OCO / STOP order: ${err}`)
         logger.error(`CRITICAL ERROR - risk of LOSSES you must enter stop manually!!!`)
-        ws.close()
-        process.exit()
+        shutdown()
       })
   }
+}
+
+const shutdown = () => {
+  logger.info('Exit.')
+  ws.close()
+  process.exit()
 }
 
 const calculateTargetPrice = () => {
@@ -355,11 +356,9 @@ function cancelOrderAndExit () {
     entryOrder.cancel().then(() => {
       logger.info(`Cancellation confirmed for order ${entryOrder.cid}`)
       entryOrderActive = false
-      ws.close()
-      process.exit()
+      shutdown()
     })
   } else {
-    ws.close()
-    process.exit()
+    shutdown()
   }
 }
