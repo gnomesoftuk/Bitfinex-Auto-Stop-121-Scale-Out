@@ -287,10 +287,10 @@ const submitCloseOrders = (amount) => {
       }, ws)
       targetOrder.setReduceOnly(true)
   
-      logger.info('Compiled oco limit order for ' + amount + ' at ' + targetPrice + ' and stop at ' + stopPrice)
-  
-      targetOrder.submit().then(resolve())
-        .catch((err) => reject(err))
+      targetOrder.submit().then(() => {
+        logger.info('Compiled oco limit order for ' + amount + ' at ' + targetPrice + ' and stop at ' + stopPrice)
+        resolve()
+      }).catch((err) => reject(err))
     })
   }
 
