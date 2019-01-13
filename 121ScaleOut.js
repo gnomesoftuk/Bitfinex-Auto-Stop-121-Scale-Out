@@ -229,7 +229,7 @@ ws.once('auth', () => {
     }
   })
 
-  logger.info(`Submitting entry order ${JSON.stringify(entryOrderObj)}.`)
+  logger.info(`Submitting ENTRY order ${JSON.stringify(entryOrderObj)}.`)
   
   entryOrder.submit().then(() => {
     entryOrderActive = true
@@ -259,6 +259,8 @@ const submitStopOrder = (amount) => {
     }, ws)
     stopOrder.setReduceOnly(true)
   
+    logger.info(`Submitting STOP order ${JSON.stringify(stopOrder)}.`)
+
     stopOrder.submit().then(() => {
       logger.info(`Submitted stop order for ${amount} at ${stopPrice}`)
       resolve()
@@ -287,6 +289,8 @@ const submitCloseOrders = (amount) => {
       }, ws)
       targetOrder.setReduceOnly(true)
   
+      logger.info(`Submitting OCO order ${JSON.stringify(targetOrder)}.`)
+
       targetOrder.submit().then(() => {
         logger.info('Compiled oco limit order for ' + amount + ' at ' + targetPrice + ' and stop at ' + stopPrice)
         resolve()
@@ -306,8 +310,8 @@ const submitCloseOrders = (amount) => {
     })
   } else {
     // when scaling out we want to submit one stop and one OCO order for half the position size.
-    amount = amount / 2
-    submitStopOrder()
+    amount = roundToSignificantDigitsBFX(amount / 2)
+    submitStopOrder(amount)
       .then(submitOco)
       .then(() => {
         logger.info('Submitted scale out 1:1 (oco) + stop order')
