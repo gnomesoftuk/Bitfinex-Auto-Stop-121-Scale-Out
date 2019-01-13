@@ -108,7 +108,7 @@ logger.info('1:1 scale out mode: ' + (targetPrice ? 'OFF' : 'ON'))
 
 const bfxExchangeTakerFee = 0.002 // 0.2% 'taker' fee
 
-var roundToSignificantDigitsBFX = function (num) {
+const roundToSignificantDigitsBFX = function (num) {
   // Bitfinex uses 5 significant digits
   // https://support.bitfinex.com/hc/en-us/articles/115000371105-How-is-precision-calculated-using-Significant-Digits
   var n = 5
@@ -140,19 +140,18 @@ const bfx = new BFX({
 tradingPair = tradingPair.toUpperCase()
 entryPrice = roundToSignificantDigitsBFX(entryPrice)
 stopPrice = roundToSignificantDigitsBFX(stopPrice)
-tradeAmount = roundToSignificantDigitsBFX(tradeAmount)
 cancelPrice = cancelPrice ? roundToSignificantDigitsBFX(cancelPrice) : stopPrice
 
 let isShort = entryPrice < stopPrice
 let estimatedSlippagePercent = slippage / 100
 
-var entryOrderActive = false
+let entryOrderActive = false
 
 let entryOrderObj = {
   cid: Date.now(),
   symbol: 't' + tradingPair,
   price: entryPrice,
-  amount: !isShort ? tradeAmount : -tradeAmount,
+  amount: roundToSignificantDigitsBFX(!isShort ? tradeAmount : -tradeAmount),
   type: Order.type[(isExchange ? 'EXCHANGE_' : '') + (entryPrice === 0 ? 'MARKET' : entryLimitOrder ? 'LIMIT' : entryStopLimitTrigger === 0 ? 'STOP' : 'STOP_LIMIT')]
 }
 if (entryStopLimitTrigger !== 0) { // stop limit entry
@@ -208,20 +207,22 @@ ws.once('auth', () => {
       entryOrderActive = false
       ws.unsubscribeTicker('t' + tradingPair)
       logger.info('-- POSITION ENTERED --')
-      if (isExchange) { tradeAmount = tradeAmount - (tradeAmount * bfxExchangeTakerFee) }
-      let amount = roundToSignificantDigitsBFX((!isShort ? -tradeAmount : tradeAmount))
+      let adjustedTradeAmount = tradeAmount
+      // adjust the position size here because the exchange will deduct fees from the amount bought or sold.
+      if (isExchange) { adjustedTradeAmount = tradeAmount - (tradeAmount * bfxExchangeTakerFee) }
+      let roundedTradeAmount = roundToSignificantDigitsBFX((!isShort ? -adjustedTradeAmount : adjustedTradeAmount))
 
       if (entryOrder.priceAvg == null && entryPrice === 0) {
         logger.info(' Average price of entry was NOT RETURNED by Bitfinex! Scale-out target cannot be calculated. :-(')
-        logger.info(' Placing a SINGLE stop order at ' + stopPrice + ' for ' + amount + ' (100%) to protect your position')
+        logger.info(' Placing a SINGLE stop order at ' + stopPrice + ' for ' + roundedTradeAmount + ' (100%) to protect your position')
         logger.info(argv)
         logger.info(entryOrder)
-        submitStopOrder(amount).then(() => {
+        submitStopOrder(roundedTradeAmount).then(() => {
           // nothing else to do now.
           shutdown()
         })
       } else {
-        submitCloseOrders(amount)
+        submitCloseOrders(roundedTradeAmount)
       }
     } else {
       logger.info('Entry order cancelled.')
