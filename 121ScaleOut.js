@@ -250,17 +250,18 @@ if (isExchange && isShort) {
 
 const submitStopOrder = (amount) => {
   return new Promise((resolve, reject) => {
-    const stopOrder = new Order({
+    const stopOrderObj = {
       cid: Date.now(),
       symbol: 't' + tradingPair,
       price: stopPrice,
       amount: amount,
       hidden: hiddenExitOrders,
       type: Order.type[(isExchange ? 'EXCHANGE_' : '') + 'STOP']
-    }, ws)
+    }
+    const stopOrder = new Order(stopOrderObj, ws)
     stopOrder.setReduceOnly(true)
   
-    logger.info(`Submitting STOP order ${JSON.stringify(stopOrder)}.`)
+    logger.info(`Submitting STOP order ${JSON.stringify(stopOrderObj)}.`)
 
     stopOrder.submit().then(() => {
       logger.info(`Submitted stop order for ${amount} at ${stopPrice}`)
@@ -278,7 +279,7 @@ const submitCloseOrders = (amount) => {
       
       const targetPrice = roundToSignificantDigitsBFX(calculateTargetPrice())
   
-      const targetOrder = new Order({
+      const targetOrderObj = {
         cid: Date.now(),
         symbol: 't' + tradingPair,
         price: targetPrice, // scale-out target price (1:1)
@@ -287,10 +288,11 @@ const submitCloseOrders = (amount) => {
         oco: true,
         hidden: hiddenExitOrders,
         priceAuxLimit: stopPrice
-      }, ws)
+      }
+      const targetOrder = new Order(targetOrderObj, ws)
       targetOrder.setReduceOnly(true)
   
-      logger.info(`Submitting OCO order ${JSON.stringify(targetOrder)}.`)
+      logger.info(`Submitting OCO order ${JSON.stringify(targetOrderObj)}.`)
 
       targetOrder.submit().then(() => {
         logger.info('Compiled oco limit order for ' + amount + ' at ' + targetPrice + ' and stop at ' + stopPrice)
